@@ -31,9 +31,12 @@ Unlock Tesla FSD on your Flipper Zero. No subscription, no computer, just plug i
 
 | Setting | Description |
 |---------|-------------|
+| **Mode** | `Active` / `Listen-Only` / `Service`. Listen-Only is the **first-boot default** as of v2.4 — the MCP2515 is put into hardware listen-only mode and physically cannot TX. Switch to Active when you're ready. |
 | **Force FSD** | Enable FSD without "Traffic Light and Stop Sign Control" toggle — for regions where this option doesn't exist |
 | **Suppress Chime** | Kill the ISA speed warning chime (HW4 only, CAN ID `0x399`) |
 | **Emerg. Vehicle** | Enable emergency vehicle detection flag (HW4 only, bit59) |
+| **Nag Killer** | EPAS counter+1 echo on `0x370` (CAN 880 method, ported from upstream MR !44) |
+| **Precondition** | Periodic `0x082 byte[0] = 0x05` inject to trigger BMS battery preheat. Same trick Tesla uses for Supercharger preconditioning. |
 
 ### HW Support
 
@@ -61,9 +64,13 @@ Unlock Tesla FSD on your Flipper Zero. No subscription, no computer, just plug i
   <img src="images/wiring_diagram.png" alt="Wiring Diagram" width="700">
 </p>
 
-> **Important:** Cut or disable the 120-ohm termination resistor on the CAN Add-On. The vehicle's CAN bus already has its own termination — adding a second one causes communication errors.
+> **Termination resistor:** Electronic Cats ships two revisions of this Add-On. v0.1 has the 120 Ω terminator enabled by default and you need to open the `J1 / TERM` solder jumper on the bottom of the board. v0.2+ ships with it already open. To check without opening anything, measure the resistance between the CAN-H and CAN-L screw terminals **before** plugging into the car: ~120 Ω = good (terminator off), ~60 Ω = open the jumper, open circuit = also fine. Full breakdown in [`HARDWARE.md`](HARDWARE.md#termination-resistor--important-detail).
 
 Alternative connection point: **X179 diagnostic connector** in the rear center console (Pin 13 CAN-H, Pin 14 CAN-L on 20-pin; Pin 18/19 on 26-pin).
+
+### Other supported hardware
+
+Don't have or don't want a Flipper Zero? An ESP32 port (PR [#6](https://github.com/hypery11/flipper-tesla-fsd/pull/6)) brings the total cost down to **~$14 / ¥100** with a built-in WiFi web dashboard. Generic MCP2515 modules from Aliexpress also work with the Flipper Zero if you wire them by hand. See [`HARDWARE.md`](HARDWARE.md) for the full comparison + pin maps.
 
 ---
 
@@ -121,14 +128,31 @@ FSD activates when **"Traffic Light and Stop Sign Control"** is enabled in your 
 
 ## Compatibility
 
-| Vehicle | HW Version | Firmware | Mode | Status |
-|---------|-----------|----------|------|--------|
-| Model 3/Y (2019-2023) | HW3 | Any | HW3 | Supported |
-| Model 3/Y (2023+) | HW4 | < 2026.2.3 | **HW3** | Supported |
-| Model 3/Y (2023+) | HW4 | >= 2026.2.3 (excl. 2026.2.9.x, 2026.8.6) | HW4 | Supported |
-| Model 3/Y (2023+) | HW4 | 2026.2.9.x or 2026.8.6 | **HW3** | Use HW3 mode |
-| Model S/X (2021+) | HW4 | >= 2026.2.3 (excl. 2026.2.9.x, 2026.8.6) | HW4 | Supported |
-| Model S/X (2016-2019) | HW1/HW2 | Any | Legacy | **Looking for testers** |
+| Vehicle | HW | Firmware | Mode | Status |
+|---------|----|----------|------|--------|
+| Model 3 / Y (2019-2023) | HW3 | Any | Auto | Supported |
+| Model 3 / Y (2023+) | HW4 | `< 2026.2.3` | Force HW3 | Supported |
+| Model 3 / Y (2023+) | HW4 | `2026.2.3` ↔ `2026.2.8` | Auto | Supported |
+| Model 3 / Y (2023+) | HW4 | `2026.2.9.x` (FSD v14) | Auto | Supported |
+| Model 3 / Y (2023+) | HW4 | `2026.2.10` ↔ `2026.4.x` | Auto | Supported |
+| Model 3 / Y (2023+) | HW4 | `2026.8.6` | **Force HW3** | Use HW3 mode (HW4 path broken on this build) |
+| Model 3 Highland (2024+) | HW4 | `2026.2.x` | Auto | Reported working — needs more confirmations |
+| Model 3 / Y (China, MIC) | HW3 / HW4 | `2026.2.11` | Auto + Force FSD | Reported working — see issues #1, #4, #7 |
+| Model S / X (2021+) | HW4 | `>= 2026.2.3` (excl. 2026.8.6) | Auto | Supported |
+| Model S / X (2016-2019) | HW1 / HW2 | Any | Legacy | Implemented in v2.0, **needs on-car confirmation** |
+
+### Tested by community
+
+Reports from real cars (file your own via the [Car compatibility report](https://github.com/hypery11/flipper-tesla-fsd/issues/new?template=car_compatibility.yml) issue template):
+
+| Reporter | Car | HW | Firmware | Region | Mode | Result |
+|----------|-----|----|----------|--------|------|--------|
+| @vbarrier | Model 3 | HW4 | 2026.4.x | EU | Auto | Working |
+| @kwangseok73-sudo | Model 3 | HW4 | 2026.2.x | KR | Force FSD | Working |
+| @andreiboestean | Model 3 | HW4 | 2026.2.9.3 (FSD v14) | EU | Auto | Working |
+| Marow | Model Y Juniper | HW4 | 2026.8.6 | EU | (Force HW3 not yet tested) | "Region not available" → use Force FSD + Force HW3 |
+
+If your car is listed and you've tested, please leave a thumbs-up on the relevant issue so we can confirm.
 
 ### HW1/HW2 Legacy Support — Volunteers Needed
 
@@ -178,11 +202,24 @@ Yes. Flipper has no built-in CAN. You need the Electronic Cats board or any MCP2
 
 ---
 
+## Related projects
+
+| Project | What it is | Hardware |
+|---------|------------|----------|
+| [slxslx/tesla-open-can-mod-slx-repo](https://gitlab.com/slxslx/tesla-open-can-mod-slx-repo) | The de facto upstream after the original Tesla-OPEN-CAN-MOD GitLab namespace was taken down. Broader scope ("general CAN mod tool, not just FSD"). | Adafruit RP2040 CAN, Feather M4, ESP32, M5Stack ATOMIC CAN |
+| ESP32 port — PR [#6](https://github.com/hypery11/flipper-tesla-fsd/pull/6) by @elonleo | Full ESP32 port of this project's CAN logic with a built-in WiFi web dashboard. ~$14 alternative to Flipper Zero + Add-On. | M5Stack ATOM Lite + ATOMIC CAN, Waveshare ESP32-S3-RS485-CAN |
+| [tumik/S3XY-candump](https://github.com/tumik/S3XY-candump) | Python tool to dump Tesla CAN bus over WiFi using an enhauto S3XY Commander as a Panda-protocol bridge | Commander dongle |
+| [dzid26/ESP32-DualCAN](https://github.com/dzid26/ESP32-DualCAN) | "Dorky Commander" — open-source hardware alternative to the enhauto S3XY Commander | ESP32 + dual CAN |
+| [Starmixcraft/tesla-fsd-can-mod](https://gitlab.com/Starmixcraft/tesla-fsd-can-mod) | Original CanFeather FSD reverse-engineering — the source we ported from | Adafruit RP2040 CAN |
+| [tuncasoftbildik/tesla-can-mod](https://github.com/tuncasoftbildik/tesla-can-mod) | Arduino reference implementation with working frame templates for several non-FSD features | Arduino + MCP2515 |
+
 ## Credits
 
 - [commaai/opendbc](https://github.com/commaai/opendbc) — Tesla CAN signal database
 - [ElectronicCats/flipper-MCP2515-CANBUS](https://github.com/ElectronicCats/flipper-MCP2515-CANBUS) — MCP2515 driver for Flipper
 - [Starmixcraft/tesla-fsd-can-mod](https://gitlab.com/Starmixcraft/tesla-fsd-can-mod) — original CanFeather FSD research
+- mikegapinski/tesla-can-explorer — 40k Tesla CAN signal dictionary extracted from `libQtCarVAPI.so`
+- talas9/tesla_can_signals — per-model wire format reference
 
 ## License
 
@@ -190,4 +227,4 @@ GPL-3.0
 
 ## Disclaimer
 
-Educational and research use only. Modifying vehicle systems may void your warranty and may violate local laws. You are solely responsible for what you do with this. Use at your own risk.
+Educational and research use only. **FSD is a premium Tesla feature and must be properly purchased or subscribed to.** Modifying vehicle systems may void your warranty and may violate local laws. You are solely responsible for what you do with this. Full safety and responsible-use notes in [`SECURITY.md`](SECURITY.md).
